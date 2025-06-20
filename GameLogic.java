@@ -8,6 +8,17 @@ public class GameLogic {
     public static final int PLAYER = 1;
     public static final int AI = 2;
 
+    // --- 评估函数所需的分数常量 ---
+    private static final int SCORE_WIN = 1000000;   // 连五
+    private static final int SCORE_LIVE_FOUR = 100000;  // 活四
+    private static final int SCORE_RUSH_FOUR = 10000;   // 冲四
+    private static final int SCORE_LIVE_THREE = 5000;   // 活三
+    private static final int SCORE_SLEEP_THREE = 1000;  // 眠三
+    private static final int SCORE_LIVE_TWO = 500;      // 活二
+    private static final int SCORE_SLEEP_TWO = 100;     // 眠二
+    private static final int SCORE_LIVE_ONE = 50;       // 活一
+    private static final int SCORE_SLEEP_ONE = 10;      // 眠一
+
     public GameLogic() {
         // 构造方法，初始化棋盘为空格
         for (int i = 0; i < size; i++) {
@@ -33,24 +44,113 @@ public class GameLogic {
 
     /**
      * 机器人随机下棋
+     * 特别需要注意优化算法时，aiMove的函数的返回值要和之前的一模一样
      * @return 返回机器人落子的坐标点 Point, 如果棋盘已满则返回 null
      */
     public Point aiMove() {
-        // 检查棋盘是否已满
         if (isBoardFull()) {
             return null;
         }
+
+        // 创建一个评分板
+        int[][] scoreBoard = new int[size][size];
         
-        Random rand = new Random();
-        int x, y;
-        do {
-            x = rand.nextInt(size);
-            y = rand.nextInt(size);
-        } while (board[x][y] != 0); // 随机选择一个空的格子
+        // 遍历棋盘所有空位，计算每个位置的得分
+        for (int i = 0; i < size; i++) {
+            for (int j = 0; j < size; j++) {
+                if (board[i][j] == 0) {
+                    // 计算AI下在此处的进攻分
+                    int offensiveScore = calculatePointScore(i, j, AI);
+                    // 计算玩家下在此处的防守分
+                    int defensiveScore = calculatePointScore(i, j, PLAYER);
+                    // 总分 = 进攻分 + 防守分
+                    scoreBoard[i][j] = offensiveScore + defensiveScore;
+                }
+            }
+        }
         
-        board[x][y] = AI;
-        return new Point(x, y, AI);
+        // 从评分板中找到分数最高的点
+        int bestX = -1, bestY = -1;
+        int maxScore = -1;
+        for (int i = 0; i < size; i++) {
+            for (int j = 0; j < size; j++) {
+                if (board[i][j] == 0 && scoreBoard[i][j] > maxScore) {
+                    maxScore = scoreBoard[i][j];
+                    bestX = i;
+                    bestY = j;
+                }
+            }
+        }
+
+        // 在分数最高的点落子
+        board[bestX][bestY] = AI;
+        return new Point(bestX, bestY, AI);
     }
+
+    /**
+     * 计算在指定点落子后，该点在所有四个方向上形成棋形的总分数
+     * @param x, y 坐标
+     * @param player 假设落子的玩家
+     * @return 该点的总分数
+     */
+    private int calculatePointScore(int x, int y, int player) {
+        int totalScore = 0;
+        int[][] directions = {{1, 0}, {0, 1}, {1, 1}, {1, -1}}; // 横、竖、右下、右上
+
+        for (int[] dir : directions) {
+            totalScore += evaluateDirection(x, y, player, dir[0], dir[1]);
+        }
+        return totalScore;
+    }
+
+    /**
+     * 评估在一个方向上形成的棋形并返回其分数
+     */
+    private int evaluateDirection(int x, int y, int player, int dx, int dy) {
+        StringBuilder line = new StringBuilder();
+        // 以(x,y)为中心，向前后各取4个子，形成长度为9的线
+        for (int i = -4; i <= 4; i++) {
+            int nx = x + i * dx;
+            int ny = y + i * dy;
+
+            if (isValid(nx, ny)) {
+                if (i == 0) {
+                    line.append(player); // 假设中心点已落子
+                } else {
+                    line.append(board[nx][ny]);
+                }
+            } else {
+                line.append("3"); // 3代表墙壁或边界
+            }
+        }
+        
+        // 根据形成的字符串匹配棋形给分
+        String s = line.toString();
+        // 己方棋形
+        if (s.contains(String.valueOf(player).repeat(5))) return SCORE_WIN;
+        if (s.contains("0" + String.valueOf(player).repeat(4) + "0")) return SCORE_LIVE_FOUR;
+        if (s.contains(String.valueOf(player).repeat(4)) && (s.contains("0" + String.valueOf(player).repeat(4)) || s.contains(String.valueOf(player).repeat(4) + "0"))) return SCORE_RUSH_FOUR;
+        if (s.contains("0" + String.valueOf(player).repeat(3) + "0")) return SCORE_LIVE_THREE;
+        if (s.contains("00" + String.valueOf(player).repeat(2) + "00")) return SCORE_LIVE_TWO; 
+        if (
+                s.contains("0" + String.valueOf(player).repeat(3)) || 
+                s.contains(String.valueOf(player).repeat(3) + "0") ||
+                s.contains("0" + player + "0" + player + player + "0") || 
+                s.contains("0" + player + player + "0" + player + "0")
+            ) return SCORE_SLEEP_THREE;
+        if (
+                s.contains("0" + String.valueOf(player).repeat(2)) ||
+                s.contains(String.valueOf(player).repeat(2) + "0") ||
+                s.contains("0" + player + "0" + player + "0")
+            ) return SCORE_SLEEP_TWO;
+        if (s.contains("0" + player + "0")) return SCORE_LIVE_ONE;
+        if (s.contains("0" + player) || s.contains(player + "0")) return SCORE_SLEEP_ONE;
+
+        
+        return 0; // 默认不得分
+    }
+
+
     
     /**
      * 核心胜利判断逻辑，只判断传入的最后一个点
